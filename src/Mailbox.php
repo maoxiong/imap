@@ -12,6 +12,7 @@ final class Mailbox
 	private readonly string $host;
 	private readonly int $port;
 	private readonly bool $ssl;
+	private readonly bool $startTls;
 	private readonly bool $validateCert;
 	private readonly string $folder;
 
@@ -35,14 +36,15 @@ final class Mailbox
 		}
 
 		$flags = preg_split('~/~', strtolower($m[3]), -1, PREG_SPLIT_NO_EMPTY) ?: []; // c-client matches them case-insensitively
-		if (in_array('tls', $flags, true) || in_array('tls-sslv23', $flags, true)) {
-			throw new Exception('STARTTLS is not supported, use implicit TLS via /ssl');
+		$this->ssl = in_array('ssl', $flags, true);
+		$this->startTls = in_array('tls', $flags, true) || in_array('tls-sslv23', $flags, true); // c-client's name for the version-flexible method
+		if ($this->ssl && $this->startTls) {
+			throw new Exception('Flags /ssl and /tls contradict each other: /ssl is TLS from the start, /tls upgrades a plain connection');
 		} elseif (in_array('validate-cert', $flags, true) && in_array('novalidate-cert', $flags, true)) {
 			throw new Exception('Flags /validate-cert and /novalidate-cert contradict each other');
 		}
 
 		$this->host = $m[1];
-		$this->ssl = in_array('ssl', $flags, true);
 		$this->validateCert = !in_array('novalidate-cert', $flags, true);
 		$this->port = $m[2] === '' ? ($this->ssl ? 993 : 143) : (int) $m[2]; // a port of 0 is falsy, but given
 		$this->folder = $m[4] === '' ? 'INBOX' : $m[4];
@@ -55,7 +57,13 @@ final class Mailbox
 	 */
 	public function connect(): void
 	{
-		$connection = Connection::connect($this->host, $this->port, $this->ssl, validateCert: $this->validateCert);
+		$connection = Connection::connect(
+			$this->host,
+			$this->port,
+			$this->ssl,
+			validateCert: $this->validateCert,
+			startTls: $this->startTls,
+		);
 		$connection->command('LOGIN ' . Connection::quote($this->username) . ' ' . Connection::quote($this->password));
 		$connection->command('SELECT ' . Connection::quote(self::encodeName($this->folder)));
 		$this->close(); // only once the new session stands, so a failure does not cost the old one

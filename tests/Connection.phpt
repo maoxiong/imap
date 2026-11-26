@@ -213,3 +213,60 @@ test('a line and a literal longer than one read chunk come back whole', function
 	[$connection] = scriptedConnection(literalResponse($data));
 	Assert::same($data, Connection::parseLiteral($connection->command('UID FETCH 1 (BODY.PEEK[])')[0])[0]);
 });
+
+
+/** Reads what the client sent to the server. */
+function sentCommands($server): array
+{
+	stream_set_blocking($server, false);
+	$data = stream_get_contents($server) ?: '';
+	return preg_split('~\r\n~', trim($data), -1, PREG_SPLIT_NO_EMPTY);
+}
+
+
+/** Asserts that the connection was closed rather than left to go on in plaintext. */
+function assertClosed(Connection $connection): void
+{
+	Assert::exception(fn() => $connection->command('NOOP'), DG\Imap\Exception::class, 'Connection is closed');
+}
+
+
+test('STARTTLS is never skipped: a server that does not offer it is refused', function () {
+	[$connection, $server] = scriptedConnection("* CAPABILITY IMAP4rev1 LOGINDISABLED\r\nT1 OK done\r\n");
+	Assert::exception(fn() => $connection->startTls(), DG\Imap\Exception::class, 'Server does not offer STARTTLS');
+	Assert::same(['T1 CAPABILITY'], sentCommands($server));
+	assertClosed($connection);
+});
+
+
+test('a STARTTLS the server declines closes the connection', function () {
+	[$connection] = scriptedConnection("* CAPABILITY IMAP4rev1 STARTTLS\r\nT1 OK done\r\nT2 NO TLS unavailable\r\n");
+	Assert::exception(fn() => $connection->startTls(), DG\Imap\Exception::class, 'Command failed: NO TLS unavailable');
+	assertClosed($connection);
+});
+
+
+test('data sent after the STARTTLS reply, before the handshake, is refused as an injection', function () {
+	[$connection] = scriptedConnection(implode('', [
+		"* CAPABILITY IMAP4rev1 STARTTLS\r\n",
+		"T1 OK done\r\n",
+		"T2 OK Begin TLS negotiation now\r\n",
+		"* OK injected in plaintext\r\n", // would otherwise be read as if it came over TLS
+	]));
+	Assert::exception(fn() => $connection->startTls(), DG\Imap\Exception::class, 'Server sent data before the TLS handshake');
+	assertClosed($connection);
+});
+
+
+test('a PREAUTH greeting is refused, the session is authenticated before TLS could start', function () {
+	[$client, $server] = stream_socket_pair(
+		DIRECTORY_SEPARATOR === '\\' ? STREAM_PF_INET : STREAM_PF_UNIX,
+		STREAM_SOCK_STREAM,
+		STREAM_IPPROTO_IP,
+	);
+	fwrite($server, "* PREAUTH logged in as robot\r\n");
+	$connection = Connection::fromStream($client);
+	Assert::exception(fn() => $connection->startTls(), DG\Imap\Exception::class, 'Server greeting does not allow STARTTLS: * PREAUTH%a%');
+	Assert::same([], sentCommands($server));
+	assertClosed($connection);
+});
