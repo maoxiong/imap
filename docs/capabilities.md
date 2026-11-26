@@ -21,7 +21,11 @@ inspect headers, download and decode what matches, delete what was processed –
   verified; `/novalidate-cert` turns that off as in 1.x, `/validate-cert` is accepted. Flags are
   matched whole and case-insensitively, unknown ones are ignored, the folder defaults to `INBOX`.
 - **Authentication**: `LOGIN` with username and password (quoted with proper escaping). Gmail
-  works with an app password.
+  works with an app password. A server that advertises `LOGINDISABLED` says the connection is
+  not protected enough for a password, so `connect()` throws instead of sending `LOGIN` and
+  points to `/ssl`. The check reads the capabilities from the greeting when the server puts them
+  there, otherwise it costs one `CAPABILITY` round trip; after login they are read again, because
+  a logged-in server may announce more, such as `MOVE` and `UIDPLUS`.
 - **Listing**: `Mailbox::getMessages()` fetches UID, size and Subject/From/Date of all messages in one
   round trip. Any other header is fetched on demand by `getHeader()`, `getHeaders()` or
   `getRawHeaders()` through

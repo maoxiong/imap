@@ -57,18 +57,13 @@ final class Mailbox
 	 */
 	public function connect(): void
 	{
-		$connection = Connection::connect(
-			$this->host,
-			$this->port,
+		$this->open(Connection::connect(
+			$this->host, 
+			$this->port, 
 			$this->ssl,
 			validateCert: $this->validateCert,
 			startTls: $this->startTls,
-		);
-		$connection->command('LOGIN ' . Connection::quote($this->username) . ' ' . Connection::quote($this->password));
-		$connection->command('SELECT ' . Connection::quote(self::encodeName($this->folder)));
-		$this->close(); // only once the new session stands, so a failure does not cost the old one
-		$this->connection = $connection;
-		$this->generation++;
+		));
 	}
 
 
@@ -209,6 +204,26 @@ final class Mailbox
 	public function getConnection(): Connection
 	{
 		return $this->connection ?? throw new Exception('The mailbox is closed');
+	}
+
+
+	/**
+	 * Logs in over a fresh connection and selects the folder; the previous session is replaced
+	 * only once the new one stands, so a failure does not cost it.
+	 */
+	private function open(Connection $connection): void
+	{
+		if ($connection->hasCapability('LOGINDISABLED')) { // the password would cross an unprotected connection
+			$connection->disconnect();
+			throw new Exception('Server does not allow login on this connection (LOGINDISABLED); use /ssl');
+		}
+
+		$connection->command('LOGIN ' . Connection::quote($this->username) . ' ' . Connection::quote($this->password));
+		$connection->forgetCapabilities(); // a logged-in server may announce more, e.g. MOVE and UIDPLUS
+		$connection->command('SELECT ' . Connection::quote(self::encodeName($this->folder)));
+		$this->close();
+		$this->connection = $connection;
+		$this->generation++;
 	}
 
 

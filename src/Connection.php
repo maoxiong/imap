@@ -38,6 +38,9 @@ final class Connection
 	{
 		$this->stream = $stream;
 		$this->greeting = $this->readResponse();
+		if (preg_match('~^\* OK \[CAPABILITY ([^\]]*)\]~i', $this->greeting, $m)) { // saves a round trip before LOGIN
+			$this->capabilities = self::parseCapabilities($m[1]);
+		}
 	}
 
 
@@ -159,12 +162,22 @@ final class Connection
 			$this->capabilities = [];
 			foreach ($this->command('CAPABILITY') as $line) {
 				if (preg_match('~^\* CAPABILITY (.*)~i', trim($line), $m)) {
-					$this->capabilities = preg_split('~\s+~', strtoupper($m[1]), -1, PREG_SPLIT_NO_EMPTY);
+					$this->capabilities = self::parseCapabilities($m[1]);
 				}
 			}
 		}
 
 		return in_array(strtoupper($capability), $this->capabilities, true);
+	}
+
+
+	/**
+	 * Drops what the server announced, so the next hasCapability() asks again. Needed after LOGIN,
+	 * because a logged-in server may announce more, e.g. MOVE and UIDPLUS.
+	 */
+	public function forgetCapabilities(): void
+	{
+		$this->capabilities = null;
 	}
 
 
@@ -207,6 +220,13 @@ final class Connection
 			fclose($this->stream);
 			$this->stream = null;
 		}
+	}
+
+
+	/** @return list<string> */
+	private static function parseCapabilities(string $list): array
+	{
+		return preg_split('~\s+~', strtoupper($list), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 	}
 
 

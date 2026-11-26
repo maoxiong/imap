@@ -155,3 +155,86 @@ test('/ssl and /tls together are refused', function () {
 		'Flags /ssl and /tls contradict each other%a%',
 	);
 });
+
+
+/**
+ * A connection to a scripted server with the given greeting, which scriptedConnection() fixes, and the
+ * server end of the socket. The server ends are kept in a static registry, otherwise GC closes them.
+ */
+function greetedConnection(string $greeting, string $script = ''): array
+{
+	static $servers = [];
+
+	[$client, $server] = stream_socket_pair(
+		DIRECTORY_SEPARATOR === '\\' ? STREAM_PF_INET : STREAM_PF_UNIX,
+		STREAM_SOCK_STREAM,
+		STREAM_IPPROTO_IP,
+	);
+	$servers[] = $server;
+	fwrite($server, $greeting . "\r\n" . $script);
+	return [DG\Imap\Connection::fromStream($client), $server];
+}
+
+
+/** Reads what the client sent to the server. */
+function sentCommands($server): array
+{
+	stream_set_blocking($server, false);
+	$data = stream_get_contents($server) ?: '';
+	return preg_split('~\r\n~', trim($data), -1, PREG_SPLIT_NO_EMPTY);
+}
+
+
+/** Logs in over the given connection the way connect() does after opening the socket. */
+function open(Mailbox $mailbox, DG\Imap\Connection $connection): void
+{
+	Assert::with($mailbox, fn() => $this->open($connection));
+}
+
+
+test('LOGINDISABLED in the greeting refuses the login before anything is sent', function () {
+	[$connection, $server] = greetedConnection('* OK [CAPABILITY IMAP4rev1 LOGINDISABLED] ready');
+	$mailbox = new Mailbox('{example.com}', 'user', 'password');
+	Assert::exception(
+		fn() => open($mailbox, $connection),
+		DG\Imap\Exception::class,
+		'Server does not allow login on this connection (LOGINDISABLED); use /ssl',
+	);
+	Assert::same([], sentCommands($server)); // no round trip, and above all no LOGIN
+	Assert::exception(fn() => $mailbox->getConnection(), DG\Imap\Exception::class, 'The mailbox is closed');
+});
+
+
+test('LOGINDISABLED announced by CAPABILITY refuses the login too', function () {
+	[$connection, $server] = greetedConnection('* OK ready', "* CAPABILITY IMAP4rev1 LOGINDISABLED\r\nT1 OK done\r\n");
+	$mailbox = new Mailbox('{example.com}', 'user', 'password');
+	Assert::exception(
+		fn() => open($mailbox, $connection),
+		DG\Imap\Exception::class,
+		'Server does not allow login on this connection (LOGINDISABLED); use /ssl',
+	);
+	Assert::same(['T1 CAPABILITY'], sentCommands($server));
+	Assert::exception(fn() => $mailbox->getConnection(), DG\Imap\Exception::class, 'The mailbox is closed');
+});
+
+
+test('a server allowing login logs in as before, and its capabilities are read again afterwards', function () {
+	[$connection, $server] = greetedConnection('* OK ready', implode("\r\n", [
+		'* CAPABILITY IMAP4rev1',
+		'T1 OK done',
+		'T2 OK LOGIN completed',
+		'T3 OK SELECT completed',
+		'* CAPABILITY IMAP4rev1 MOVE', // announced only once logged in
+		'T4 OK done',
+		'',
+	]));
+	$mailbox = new Mailbox('{example.com}', 'user', 'password');
+	open($mailbox, $connection);
+	Assert::same($connection, $mailbox->getConnection());
+	Assert::true($connection->hasCapability('MOVE'));
+
+	Assert::same(
+		['T1 CAPABILITY', 'T2 LOGIN "user" "password"', 'T3 SELECT "INBOX"', 'T4 CAPABILITY'],
+		sentCommands($server),
+	);
+});
