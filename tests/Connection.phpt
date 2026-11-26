@@ -110,3 +110,106 @@ test('using a disconnected connection throws', function () {
 test('parseLiteral returns null when there is no literal', function () {
 	Assert::null(Connection::parseLiteral("* 1 FETCH (UID 42)\r\n"));
 });
+
+
+/** Lowers the response cap, so that tests need not send hundreds of megabytes. */
+function limitResponse(Connection $connection, int $max): void
+{
+	Assert::with($connection, function () use ($max) {
+		$this->maxResponseSize = $max;
+	});
+}
+
+
+/** A FETCH response carrying the literal, with the tagged completion. */
+function literalResponse(string $data): string
+{
+	return '* 1 FETCH (BODY[] {' . strlen($data) . "}\r\n$data)\r\nT1 OK done\r\n";
+}
+
+
+test('an announced literal over the cap is refused before anything is read', function () {
+	[$connection, $server] = scriptedConnection("* 1 FETCH (BODY[] {300000000}\r\n");
+	stream_socket_shutdown($server, STREAM_SHUT_WR); // reading would hit EOF and throw 'Cannot read' instead
+	Assert::exception(
+		fn() => $connection->command('UID FETCH 1 (BODY.PEEK[])'),
+		DG\Imap\Exception::class,
+		'Server response exceeds 268435456 bytes',
+	);
+});
+
+
+test('a literal length beyond the integer range is refused too', function () {
+	[$connection] = scriptedConnection("* 1 FETCH (BODY[] {99999999999999999999}\r\n");
+	Assert::exception(
+		fn() => $connection->command('UID FETCH 1 (BODY.PEEK[])'),
+		DG\Imap\Exception::class,
+		'Server response exceeds 268435456 bytes',
+	);
+});
+
+
+test('a long line and many short lines count against the cap alike', function () {
+	[$connection] = scriptedConnection('* ' . str_repeat('x', 200) . "\r\nT1 OK done\r\n");
+	limitResponse($connection, 100);
+	Assert::exception(fn() => $connection->command('NOOP'), DG\Imap\Exception::class, 'Server response exceeds 100 bytes');
+
+	[$connection] = scriptedConnection(str_repeat('* ' . str_repeat('x', 16) . "\r\n", 10) . "T1 OK done\r\n");
+	limitResponse($connection, 100);
+	Assert::exception(fn() => $connection->command('NOOP'), DG\Imap\Exception::class, 'Server response exceeds 100 bytes');
+});
+
+
+test('the cap applies to each response, not to the connection as a whole', function () {
+	$untagged = '* ' . str_repeat('x', 44) . "\r\n";
+	[$connection] = scriptedConnection("{$untagged}T1 OK done\r\n{$untagged}T2 OK done\r\n");
+	limitResponse($connection, 100);
+	Assert::same([$untagged], $connection->command('NOOP'));
+	Assert::same([$untagged], $connection->command('NOOP'));
+});
+
+
+test('a response of exactly the cap passes and one byte more fails, in a line or in a literal', function () {
+	$lineResponse = fn(int $total) => '* ' . str_repeat('x', $total - 16) . "\r\nT1 OK done\r\n";
+	Assert::same(100, strlen($lineResponse(100)));
+	[$connection] = scriptedConnection($lineResponse(100));
+	limitResponse($connection, 100);
+	Assert::count(1, $connection->command('NOOP'));
+
+	[$connection] = scriptedConnection($lineResponse(101));
+	limitResponse($connection, 100);
+	Assert::exception(fn() => $connection->command('NOOP'), DG\Imap\Exception::class, 'Server response exceeds 100 bytes');
+
+	$data = str_repeat('y', 61);
+	Assert::same(100, strlen(literalResponse($data)));
+	[$connection] = scriptedConnection(literalResponse($data));
+	limitResponse($connection, 100);
+	Assert::same($data, Connection::parseLiteral($connection->command('UID FETCH 1 (BODY.PEEK[])')[0])[0]);
+
+	Assert::same(101, strlen(literalResponse($data . 'y')));
+	[$connection] = scriptedConnection(literalResponse($data . 'y'));
+	limitResponse($connection, 100);
+	Assert::exception(
+		fn() => $connection->command('UID FETCH 1 (BODY.PEEK[])'),
+		DG\Imap\Exception::class,
+		'Server response exceeds 100 bytes',
+	);
+});
+
+
+test('a refused response closes the connection, the stream is stuck mid-response', function () {
+	[$connection] = scriptedConnection("* 1 FETCH (BODY[] {300000000}\r\n");
+	Assert::exception(fn() => $connection->command('NOOP'), DG\Imap\Exception::class, 'Server response exceeds%a%');
+	Assert::exception(fn() => $connection->command('NOOP'), DG\Imap\Exception::class, 'Connection is closed');
+});
+
+
+test('a line and a literal longer than one read chunk come back whole', function () {
+	$line = '* ' . str_repeat('x', 20000) . "\r\n";
+	[$connection] = scriptedConnection("{$line}T1 OK done\r\n");
+	Assert::same([$line], $connection->command('NOOP'));
+
+	$data = str_repeat("abc\r\n", 4000);
+	[$connection] = scriptedConnection(literalResponse($data));
+	Assert::same($data, Connection::parseLiteral($connection->command('UID FETCH 1 (BODY.PEEK[])')[0])[0]);
+});

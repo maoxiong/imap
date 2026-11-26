@@ -48,6 +48,8 @@ The one genuinely tricky part is **literals**. A server may end a line with `{n}
 
 Do not "simplify" this with `stream_get_contents()` or a line-based read: literal payloads contain CRLFs and can hold the whole message body.
 
+A server is not trusted with the client's memory. Each response — everything `command()` reads up to the tagged line, literals included — has a budget of 256 MiB (`$maxResponseSize`, private so tests can lower it with `Assert::with()`). A literal is checked against what is left **before** a byte of it is read, so `{99999999999}` fails at once; a line is counted as it arrives. Exceeding the budget disconnects, because the stream is stuck mid-response, and throws `Server response exceeds N bytes`. Reads go in chunks of 8 KiB, never with a length the server chose: `fgets()` and `fread()` allocate their whole length argument up front, so `fread($stream, $announced)` is a fatal "memory exhausted" before any data arrives.
+
 ### Part numbering and nesting
 
 `Message::getPart()` takes a **0-based** index into the top-level parts. Only the top level is exposed: a child that is itself `multipart/*` stays one part whose `getContents()` returns the raw inner body, boundaries and all. This deliberately mirrors what `imap_fetchbody($c, $n, '2')` returned for a section, so 1.x callers keep working. Recursive walking would be a BC break, not a fix.
