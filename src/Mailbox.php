@@ -58,8 +58,8 @@ final class Mailbox
 	public function connect(): void
 	{
 		$this->open(Connection::connect(
-			$this->host, 
-			$this->port, 
+			$this->host,
+			$this->port,
 			$this->ssl,
 			validateCert: $this->validateCert,
 			startTls: $this->startTls,
