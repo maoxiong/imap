@@ -64,11 +64,6 @@ test('flags are matched whole and case-insensitively', function () {
 		Assert::same(993, $this->port);
 		Assert::false($this->validateCert);
 	});
-	Assert::exception(
-		fn() => new Mailbox('{example.com/tls-sslv23}', 'user', 'password'),
-		DG\Imap\Exception::class,
-		'STARTTLS is not supported, use implicit TLS via /ssl',
-	);
 });
 
 
@@ -138,10 +133,25 @@ test('a failed folder listing is not cached as an empty one', function () {
 });
 
 
-test('rejects STARTTLS instead of silently connecting in plaintext', function () {
+test('/tls asks for STARTTLS on the plain port, and /tls-sslv23 is the same', function () {
+	foreach (['{example.com/tls}', '{example.com/imap/TLS-SSLv23}'] as $spec) {
+		Assert::with(new Mailbox($spec, 'user', 'password'), function () {
+			Assert::true($this->startTls);
+			Assert::false($this->ssl);
+			Assert::same(143, $this->port);
+		});
+	}
+
+	Assert::with(new Mailbox('{example.com/ssl}', 'user', 'password'), function () {
+		Assert::false($this->startTls);
+	});
+});
+
+
+test('/ssl and /tls together are refused', function () {
 	Assert::exception(
-		fn() => new Mailbox('{example.com/tls}', 'user', 'password'),
+		fn() => new Mailbox('{example.com/ssl/tls}', 'user', 'password'),
 		DG\Imap\Exception::class,
-		'STARTTLS is not supported, use implicit TLS via /ssl',
+		'Flags /ssl and /tls contradict each other%a%',
 	);
 });

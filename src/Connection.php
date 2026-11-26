@@ -11,9 +11,13 @@ use function strlen;
  */
 final class Connection
 {
+	/** TLS versions for both implicit TLS and STARTTLS: PHP's own ssl:// default, set once so that the two never differ */
+	private const CryptoMethod = STREAM_CRYPTO_METHOD_TLS_CLIENT;
+
 	/** @var ?resource */
 	private $stream;
 	private int $tagCount = 0;
+	private readonly string $greeting;
 
 	/** @var ?list<string> */
 	private ?array $capabilities = null;
@@ -25,11 +29,12 @@ final class Connection
 	private function __construct($stream)
 	{
 		$this->stream = $stream;
-		$this->readResponse(); // server greeting
+		$this->greeting = $this->readResponse();
 	}
 
 
 	/**
+	 * Connects over implicit TLS ($ssl), a plain connection upgraded by STARTTLS ($startTls), or plain TCP.
 	 * Without $validateCert the server's certificate is not checked, so anyone in between can read the password.
 	 * @throws Exception  Failed to connect to the server.
 	 */
@@ -39,9 +44,11 @@ final class Connection
 		bool $ssl,
 		float $timeout = 30.0,
 		bool $validateCert = true,
+		bool $startTls = false,
 	): self
 	{
 		$context = stream_context_create(['ssl' => [
+			'crypto_method' => self::CryptoMethod,
 			'verify_peer' => $validateCert,
 			'verify_peer_name' => $validateCert,
 			'peer_name' => $host,
@@ -59,7 +66,12 @@ final class Connection
 		}
 
 		stream_set_timeout($stream, (int) ceil($timeout));
-		return new self($stream);
+		$connection = new self($stream);
+		if ($startTls) {
+			$connection->startTls();
+		}
+
+		return $connection;
 	}
 
 
@@ -91,6 +103,40 @@ final class Connection
 					: throw new Exception('Command failed: ' . trim(substr($line, strlen($tag) + 1)));
 			}
 			$lines[] = $line;
+		}
+	}
+
+
+	/**
+	 * Upgrades the plain connection to TLS (STARTTLS, RFC 3501). Anything short of a clean upgrade
+	 * closes the connection and throws, so the session never goes on in plaintext.
+	 * @throws Exception
+	 */
+	public function startTls(): void
+	{
+		try {
+			if (!preg_match('~^\* OK\b~i', $this->greeting)) { // PREAUTH is authenticated already, STARTTLS comes too late
+				throw new Exception('Server greeting does not allow STARTTLS: ' . trim($this->greeting));
+			} elseif (!$this->hasCapability('STARTTLS')) {
+				throw new Exception('Server does not offer STARTTLS');
+			}
+
+			$this->command('STARTTLS');
+			$stream = $this->getStream();
+			if (stream_get_meta_data($stream)['unread_bytes'] > 0) { // plaintext already buffered would pass for data received over TLS
+				throw new Exception('Server sent data before the TLS handshake');
+			}
+
+			error_clear_last();
+			if (!@stream_socket_enable_crypto($stream, true, self::CryptoMethod)) { // @ is escalated to exception
+				throw new Exception('TLS negotiation failed: ' . (error_get_last()['message'] ?? 'unknown error'));
+			}
+
+			$this->capabilities = null; // what the server announced before TLS must not be trusted
+
+		} catch (Exception $e) {
+			$this->disconnect();
+			throw $e;
 		}
 	}
 

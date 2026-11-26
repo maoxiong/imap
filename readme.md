@@ -74,6 +74,8 @@ Gmail wants an [app password](https://support.google.com/accounts/answer/185833)
 
 The server's certificate is verified. For a server with a self-signed one, `/novalidate-cert` turns that off, as it did with the old extension: `{mail.example.com/ssl/novalidate-cert}`. Be aware of what it costs – anyone between you and the server can then read the password – and prefer trusting the certificate or fixing the server. Flags are case-insensitive.
 
+A server that offers TLS only through STARTTLS on port 143 takes `/tls` instead of `/ssl`: `{mail.example.com/tls}`. The connection is upgraded before the password is sent and never goes on in plaintext if the upgrade fails. Where a server has implicit TLS, `/ssl` is still the better choice.
+
  <!---->
 
 Reading messages

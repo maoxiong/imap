@@ -11,7 +11,11 @@ inspect headers, download and decode what matches, delete what was processed –
 
 ## What it does
 
-- **Connection**: IMAP over implicit TLS (default port 993) or plain TCP (port 143). The mailbox
+- **Connection**: IMAP over implicit TLS (`/ssl`, default port 993), plain TCP upgraded by
+  STARTTLS (`/tls`, port 143) or plain TCP (port 143). STARTTLS never falls back to plaintext:
+  the server must offer it, a `PREAUTH` greeting and data injected before the handshake are
+  refused, and the capabilities are read again over TLS; implicit TLS is still the better choice
+  where a server has it. Both kinds of TLS negotiate the same versions. The mailbox
   is specified in the traditional c-client syntax, e.g. `{imap.gmail.com:993/imap/ssl}INBOX`,
   so version 1.x configurations keep working. The server's certificate (chain and host name) is
   verified; `/novalidate-cert` turns that off as in 1.x, `/validate-cert` is accepted. Flags are
@@ -58,7 +62,6 @@ By design – the workflow above does not need it:
 
 - **POP3 and NNTP** (version 1.x nominally accepted such c-client specs; the pure PHP
   implementation speaks only IMAP).
-- **STARTTLS** (`/tls` flag). Use implicit TLS on port 993 instead.
 - **OAuth 2.0 / XOAUTH2.** Password login only; for Gmail use an app password.
 - **Server-side operations** beyond the above: no `SEARCH`, no creating or deleting folders,
   no flags other than `\Deleted`, no `APPEND`, no `IDLE`.
@@ -91,6 +94,5 @@ Known assumptions, fine on Gmail and mainstream servers:
 - **XOAUTH2**, when some mailbox stops accepting app passwords.
 - **Per-part fetch** (`BODYSTRUCTURE` + `BODY.PEEK[n]`), if bandwidth on large attachments
   ever becomes a problem.
-- **STARTTLS**, if a server without implicit TLS ever needs to be supported.
 - **Search and flags API** (`SEARCH`, `\Seen`, ...), if a workflow other than
   "process and delete" appears.
