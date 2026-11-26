@@ -10,6 +10,9 @@ use function count, strlen;
  */
 final class Message
 {
+	/** the header section exactly as received, including the blank line that ends it; null until fetched */
+	private ?string $headerBlock = null;
+
 	private ?string $body = null;
 
 	/** @var ?list<string>  raw top-level MIME parts */
@@ -38,9 +41,8 @@ final class Message
 	 */
 	public static function fromString(string $raw): self
 	{
-		[$headers, $body] = MimeParser::parse($raw);
-		$message = new self(null, 0, 0, $headers, strlen($raw));
-		$message->processBody($body);
+		$message = new self(null, 0, 0, [], strlen($raw));
+		$message->setRaw($raw);
 		return $message;
 	}
 
@@ -75,6 +77,55 @@ final class Message
 		} catch (\Throwable) {
 			return null;
 		}
+	}
+
+
+	/**
+	 * Returns the header of the given name, case-insensitively, unfolded and decoded for readability,
+	 * or null when the message has none. Headers other than Subject, From and Date cost one fetch
+	 * of the header block, never the body.
+	 */
+	public function getHeader(string $name): ?string
+	{
+		$name = strtolower($name);
+		if (!isset($this->headers[$name])) {
+			$this->fetchHeaders();
+		}
+
+		return isset($this->headers[$name]) ? self::decodeHeader($this->headers[$name]) : null;
+	}
+
+
+	/**
+	 * Returns all headers with lowercased names and decoded values. For a repeated header the first
+	 * occurrence wins; use getRaw() for headers like Received.
+	 * @return array<string, string>
+	 */
+	public function getHeaders(): array
+	{
+		$this->fetchHeaders();
+		return array_map(fn(string $value) => self::decodeHeader($value), $this->headers);
+	}
+
+
+	/**
+	 * Returns the whole source of the message exactly as received, downloading it if needed.
+	 */
+	public function getRaw(): string
+	{
+		$this->fetchBody();
+		return ($this->headerBlock ?? '') . ($this->body ?? '');
+	}
+
+
+	/**
+	 * Returns the UID of the message, or null for a detached one. It is valid only within the current
+	 * session, and storing it is only safe together with UIDVALIDITY, which is not exposed; to recognize
+	 * a message later, use its Message-ID.
+	 */
+	public function getUid(): ?int
+	{
+		return $this->mailbox ? $this->uid : null;
 	}
 
 
@@ -232,9 +283,7 @@ final class Message
 		foreach ($connection->command("UID FETCH {$this->uid} (BODY.PEEK[])") as $line) {
 			$parsed = str_starts_with($line, '* ') ? Connection::parseLiteral($line) : null;
 			if ($parsed) {
-				[$headers, $body] = MimeParser::parse($parsed[0]);
-				$this->headers += $headers;
-				$this->processBody($body);
+				$this->setRaw($parsed[0]);
 				return;
 			}
 		}
@@ -243,13 +292,47 @@ final class Message
 	}
 
 
-	private function processBody(string $body): void
+	/**
+	 * Fetches the full header block without the body, unless it is already known. Like the body,
+	 * headers fetched once stay readable after the message was removed from the mailbox.
+	 */
+	private function fetchHeaders(): void
 	{
+		if ($this->headerBlock !== null) {
+			return;
+		}
+
+		$connection = $this->requireMailbox()->getConnection();
+		foreach ($connection->command("UID FETCH {$this->uid} (BODY.PEEK[HEADER])") as $line) {
+			$parsed = str_starts_with($line, '* ') ? Connection::parseLiteral($line) : null;
+			if ($parsed) {
+				$this->headerBlock = $parsed[0];
+				$this->headers += MimeParser::parse($this->headerBlock)[0];
+				return;
+			}
+		}
+
+		throw new Exception('Cannot fetch message headers');
+	}
+
+
+	/**
+	 * Stores the source split at the first blank line, the separator kept with the header block,
+	 * so that joining the two gives it back byte for byte, and splits the body into top-level parts.
+	 */
+	private function setRaw(string $raw): void
+	{
+		$end = preg_match('~\r?\n\r?\n~', $raw, $m, PREG_OFFSET_CAPTURE) // the pattern MimeParser::parse() splits on
+			? $m[0][1] + strlen($m[0][0])
+			: strlen($raw); // headers only
+		$this->headerBlock = substr($raw, 0, $end);
+		$this->body = substr($raw, $end);
+		$this->headers += MimeParser::parse($this->headerBlock)[0];
+
 		[$type, $params] = MimeParser::parseHeaderValue($this->headers['content-type'] ?? '');
 		$boundary = $params['BOUNDARY'] ?? null;
 		$this->parts = str_starts_with($type, 'multipart/') && $boundary !== null && $boundary !== ''
-			? MimeParser::splitMultipart($body, $boundary)
+			? MimeParser::splitMultipart($this->body, $boundary)
 			: [];
-		$this->body = $body;
 	}
 }

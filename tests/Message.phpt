@@ -232,6 +232,80 @@ test('detached message cannot be deleted', function () {
 });
 
 
+function buildHeaderMessage(): string
+{
+	$note = '=?utf-8?B?' . base64_encode('Příliš žluťoučký') . '?=';
+	return crlf(<<<XX
+		Received: from second.example.com
+		Received: from first.example.com
+		Message-ID: <abc.123@example.com>
+		X-Note: $note
+		X-Folded: first line
+			second line
+		Subject: Hello
+
+		body
+		XX);
+}
+
+
+test('getHeader() is case-insensitive, unfolds and decodes, and gives null for a missing header', function () {
+	$message = Message::fromString(buildHeaderMessage());
+	Assert::same('<abc.123@example.com>', $message->getHeader('Message-ID'));
+	Assert::same('<abc.123@example.com>', $message->getHeader('message-id'));
+	Assert::same('Příliš žluťoučký', $message->getHeader('X-Note'));
+	Assert::same('first line second line', $message->getHeader('X-Folded'));
+	Assert::null($message->getHeader('X-Missing'));
+});
+
+
+test('a repeated header returns its first occurrence', function () {
+	$message = Message::fromString(buildHeaderMessage());
+	Assert::same('from second.example.com', $message->getHeader('Received'));
+});
+
+
+test('getHeaders() returns lowercased names and decoded values', function () {
+	Assert::same([
+		'received' => 'from second.example.com',
+		'message-id' => '<abc.123@example.com>',
+		'x-note' => 'Příliš žluťoučký',
+		'x-folded' => 'first line second line',
+		'subject' => 'Hello',
+	], Message::fromString(buildHeaderMessage())->getHeaders());
+});
+
+
+test('getRaw() returns the input byte for byte, whatever its line endings', function () {
+	$raw = buildHeaderMessage();
+	Assert::same($raw, Message::fromString($raw)->getRaw());
+
+	$lf = "Subject: X\n\nline one\nline two\n";
+	Assert::same($lf, Message::fromString($lf)->getRaw());
+});
+
+
+test('a message of headers only round-trips and has an empty body', function () {
+	foreach (['Subject: X', "Subject: X\r\n"] as $raw) {
+		$message = Message::fromString($raw);
+		Assert::same($raw, $message->getRaw());
+		Assert::same('', $message->getContents());
+		Assert::same('X', $message->getHeader('Subject'));
+	}
+});
+
+
+test('getContents() of a single-part message is the body without the headers', function () {
+	Assert::same('body', Message::fromString(buildHeaderMessage())->getContents());
+	Assert::same("line one\nline two\n", Message::fromString("Subject: X\n\nline one\nline two\n")->getContents());
+});
+
+
+test('a detached message has no UID', function () {
+	Assert::null(Message::fromString(buildHeaderMessage())->getUid());
+});
+
+
 test('a detached message counts the bytes of its string, so LF-only input comes out smaller', function () {
 	$lf = "Subject: X\n\nline one\nline two\n";
 	$raw = crlf($lf);
