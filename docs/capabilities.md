@@ -20,6 +20,9 @@ inspect headers, download and decode what matches, delete what was processed –
   so version 1.x configurations keep working. The server's certificate (chain and host name) is
   verified; `/novalidate-cert` turns that off as in 1.x, `/validate-cert` is accepted. Flags are
   matched whole and case-insensitively, unknown ones are ignored, the folder defaults to `INBOX`.
+  An optional timeout in seconds (default 30) applies to connecting, the TLS handshake (`/ssl`
+  and `/tls` alike) and each read – each read, not the whole transfer, so data that keeps
+  arriving slowly is never cut off and there is no limit on the total time.
 - **Authentication**: `LOGIN` with username and password (quoted with proper escaping). Gmail
   works with an app password. A server that advertises `LOGINDISABLED` says the connection is
   not protected enough for a password, so `connect()` throws instead of sending `LOGIN` and

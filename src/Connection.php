@@ -76,10 +76,10 @@ final class Connection
 			throw new Exception("Cannot connect to $host:$port: $errorMessage");
 		}
 
-		stream_set_timeout($stream, (int) ceil($timeout));
+		stream_set_timeout($stream, (int) $timeout, (int) round(fmod($timeout, 1) * 1_000_000)); // limits each read, not the whole command
 		$connection = new self($stream);
 		if ($startTls) {
-			$connection->startTls();
+			$connection->startTls(); // its handshake runs under the read timeout set above
 		}
 
 		return $connection;

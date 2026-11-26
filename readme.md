@@ -76,6 +76,14 @@ The server's certificate is verified. For a server with a self-signed one, `/nov
 
 A server that offers TLS only through STARTTLS on port 143 takes `/tls` instead of `/ssl`: `{mail.example.com/tls}`. The connection is upgraded before the password is sent and never goes on in plaintext if the upgrade fails. Where a server has implicit TLS, `/ssl` is still the better choice.
 
+A server that does not answer is given 30 seconds. Pass a different timeout in seconds as the fourth argument:
+
+```php
+$mailbox = new Mailbox('{imap.gmail.com:993/ssl}', 'robot@example.com', $password, timeout: 10);
+```
+
+It applies to connecting, the TLS handshake – with `/ssl` and `/tls` alike – and each read. Each read, not the whole transfer: a large message that keeps arriving, however slowly, is not cut off.
+
  <!---->
 
 Reading messages

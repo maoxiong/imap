@@ -25,12 +25,18 @@ final class Mailbox
 
 	/**
 	 * The mailbox specification uses the traditional c-client syntax, e.g. '{imap.gmail.com:993/imap/ssl}'.
+	 * The timeout, in seconds, applies to connecting, the TLS handshake and each read from the server.
 	 */
 	public function __construct(
 		string $mailbox,
 		private readonly string $username,
 		private readonly string $password,
+		private readonly float $timeout = 30.0,
 	) {
+		if (!($timeout > 0 && is_finite($timeout))) { // 0 would fail every read at once, INF casts to 0
+			throw new \ValueError('Timeout must be a positive number of seconds');
+		}
+
 		if (!preg_match('~^\{([^:/}]+)(?::(\d+))?((?:/[\w.-]+)*)\}(.*)$~D', $mailbox, $m)) {
 			throw new Exception("Invalid mailbox specification '$mailbox'");
 		}
@@ -61,6 +67,7 @@ final class Mailbox
 			$this->host,
 			$this->port,
 			$this->ssl,
+			$this->timeout,
 			validateCert: $this->validateCert,
 			startTls: $this->startTls,
 		));
