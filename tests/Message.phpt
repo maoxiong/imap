@@ -230,3 +230,11 @@ test('detached message cannot be deleted', function () {
 		'Message is not bound to a mailbox',
 	);
 });
+
+
+test('a detached message counts the bytes of its string, so LF-only input comes out smaller', function () {
+	$lf = "Subject: X\n\nline one\nline two\n";
+	$raw = crlf($lf);
+	Assert::same(strlen($raw), Message::fromString($raw)->getSize());
+	Assert::same(strlen($raw) - 4, Message::fromString($lf)->getSize());
+});

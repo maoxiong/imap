@@ -2,7 +2,7 @@
 
 namespace DG\Imap;
 
-use function count;
+use function count, strlen;
 
 
 /**
@@ -27,6 +27,7 @@ final class Message
 		private readonly int $uid,
 		/** @var array<string, string> */
 		private array $headers,
+		private readonly ?int $size = null,
 	) {
 	}
 
@@ -38,7 +39,7 @@ final class Message
 	public static function fromString(string $raw): self
 	{
 		[$headers, $body] = MimeParser::parse($raw);
-		$message = new self(null, 0, 0, $headers);
+		$message = new self(null, 0, 0, $headers, strlen($raw));
 		$message->processBody($body);
 		return $message;
 	}
@@ -74,6 +75,17 @@ final class Message
 		} catch (\Throwable) {
 			return null;
 		}
+	}
+
+
+	/**
+	 * Returns the size of the message in bytes as reported by the server, without downloading it,
+	 * or null when the server did not report it. For a message created by fromString() it is the
+	 * length of the given string, so LF-only input comes out smaller than the CRLF size a server reports.
+	 */
+	public function getSize(): ?int
+	{
+		return $this->size;
 	}
 
 
