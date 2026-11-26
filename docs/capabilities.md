@@ -74,6 +74,14 @@ Known assumptions, fine on Gmail and mainstream servers:
 
 - FETCH body responses are expected to use `{n}` literals, not quoted strings (all real servers
   send literals for bodies).
+- One server response may be at most 256 MiB, far above what mail servers accept (Gmail 50 MB,
+  Exchange Online 150 MB). A larger one is refused before it is read and the connection is
+  closed; call `connect()` to continue. A message over the limit therefore cannot be read, and
+  since the listing is one response too, it tops out around a million messages. PHP's
+  `memory_limit` usually bites well before that: the cap guards against a broken or hostile
+  server, it is not a memory budget. It limits bytes, not time – a server trickling data slowly
+  can still hold the connection open, because the read timeout restarts with every chunk that
+  arrives; a limit on the total time is not implemented.
 - An empty mailbox needs no special handling: `UID FETCH 1:*` matches no UID and the server
   answers OK with no data, which RFC 3501 requires and Gmail was verified to do.
 - A `Message` is only usable within the session that produced it. After the mailbox was closed,

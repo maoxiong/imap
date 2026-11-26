@@ -11,12 +11,20 @@ use function strlen;
  */
 final class Connection
 {
+	private const ChunkSize = 8192;
+
 	/** @var ?resource */
 	private $stream;
 	private int $tagCount = 0;
 
 	/** @var ?list<string> */
 	private ?array $capabilities = null;
+
+	/** the most bytes one response may make the client read, a guard against a broken or hostile server */
+	private int $maxResponseSize = 256 * 1024 * 1024;
+
+	/** bytes read of the current response */
+	private int $received = 0;
 
 
 	/**
@@ -68,6 +76,7 @@ final class Connection
 	{
 		$tag = 'T' . ++$this->tagCount;
 		$this->write("$tag $command\r\n");
+		$this->received = 0;
 		$lines = [];
 		while (true) {
 			$line = $this->readResponse();
@@ -172,27 +181,56 @@ final class Connection
 	}
 
 
+	/**
+	 * Reads in chunks, because fgets() and fread() allocate their whole length argument up front,
+	 * so a length the server controls must never reach them.
+	 */
 	private function readLine(): string
 	{
-		$line = @fgets($this->getStream()); // @ is escalated to exception
-		if ($line === false || !str_ends_with($line, "\n")) { // a partial line means timeout or EOF mid-line
-			throw new Exception('Cannot read from server (connection closed or timed out)');
-		}
+		$line = '';
+		do {
+			$size = min($this->maxResponseSize - $this->received, self::ChunkSize);
+			if ($size <= 0) {
+				$this->tooLarge();
+			}
+			$chunk = @fgets($this->getStream(), $size + 1); // @ is escalated to exception
+			if ($chunk === false || (!str_ends_with($chunk, "\n") && strlen($chunk) < $size)) { // a partial line means timeout or EOF mid-line
+				throw new Exception('Cannot read from server (connection closed or timed out)');
+			}
+			$this->received += strlen($chunk);
+			$line .= $chunk;
+		} while (!str_ends_with($chunk, "\n"));
+
 		return $line;
 	}
 
 
 	private function readBytes(int $count): string
 	{
+		if ($count > $this->maxResponseSize - $this->received) {
+			$this->tooLarge();
+		}
+
 		$data = '';
 		while (($remaining = $count - strlen($data)) > 0) {
-			$chunk = @fread($this->getStream(), $remaining); // @ is escalated to exception
+			$chunk = @fread($this->getStream(), min($remaining, self::ChunkSize)); // @ is escalated to exception
 			if ($chunk === false || $chunk === '') {
 				throw new Exception('Cannot read from server (connection closed or timed out)');
 			}
 			$data .= $chunk;
 		}
 
+		$this->received += $count;
 		return $data;
+	}
+
+
+	/**
+	 * The stream is stuck in the middle of the response, so reusing it would read data as protocol.
+	 */
+	private function tooLarge(): never
+	{
+		$this->disconnect();
+		throw new Exception("Server response exceeds {$this->maxResponseSize} bytes");
 	}
 }
