@@ -72,6 +72,8 @@ Host, port and the `/ssl` flag are all optional: the port defaults to 993 with T
 
 Gmail wants an [app password](https://support.google.com/accounts/answer/185833) rather than your account password.
 
+The server's certificate is verified. For a server with a self-signed one, `/novalidate-cert` turns that off, as it did with the old extension: `{mail.example.com/ssl/novalidate-cert}`. Be aware of what it costs – anyone between you and the server can then read the password – and prefer trusting the certificate or fixing the server. Flags are case-insensitive.
+
  <!---->
 
 Reading messages

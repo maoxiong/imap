@@ -12,6 +12,7 @@ final class Mailbox
 	private readonly string $host;
 	private readonly int $port;
 	private readonly bool $ssl;
+	private readonly bool $validateCert;
 	private readonly string $folder;
 
 	/** @var ?array<string, list<string>>  folder name in UTF-8 => its attributes */
@@ -33,12 +34,16 @@ final class Mailbox
 			throw new Exception("Invalid mailbox specification '$mailbox'");
 		}
 
-		if (str_contains($m[3], '/tls')) {
+		$flags = preg_split('~/~', strtolower($m[3]), -1, PREG_SPLIT_NO_EMPTY) ?: []; // c-client matches them case-insensitively
+		if (in_array('tls', $flags, true) || in_array('tls-sslv23', $flags, true)) {
 			throw new Exception('STARTTLS is not supported, use implicit TLS via /ssl');
+		} elseif (in_array('validate-cert', $flags, true) && in_array('novalidate-cert', $flags, true)) {
+			throw new Exception('Flags /validate-cert and /novalidate-cert contradict each other');
 		}
 
 		$this->host = $m[1];
-		$this->ssl = str_contains($m[3], '/ssl');
+		$this->ssl = in_array('ssl', $flags, true);
+		$this->validateCert = !in_array('novalidate-cert', $flags, true);
 		$this->port = $m[2] === '' ? ($this->ssl ? 993 : 143) : (int) $m[2]; // a port of 0 is falsy, but given
 		$this->folder = $m[4] === '' ? 'INBOX' : $m[4];
 	}
@@ -50,7 +55,7 @@ final class Mailbox
 	 */
 	public function connect(): void
 	{
-		$connection = Connection::connect($this->host, $this->port, $this->ssl);
+		$connection = Connection::connect($this->host, $this->port, $this->ssl, validateCert: $this->validateCert);
 		$connection->command('LOGIN ' . Connection::quote($this->username) . ' ' . Connection::quote($this->password));
 		$connection->command('SELECT ' . Connection::quote(self::encodeName($this->folder)));
 		$this->close(); // only once the new session stands, so a failure does not cost the old one

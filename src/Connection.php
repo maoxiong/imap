@@ -38,15 +38,29 @@ final class Connection
 
 
 	/**
+	 * Without $validateCert the server's certificate is not checked, so anyone in between can read the password.
 	 * @throws Exception  Failed to connect to the server.
 	 */
-	public static function connect(string $host, int $port, bool $ssl, float $timeout = 30.0): self
+	public static function connect(
+		string $host,
+		int $port,
+		bool $ssl,
+		float $timeout = 30.0,
+		bool $validateCert = true,
+	): self
 	{
+		$context = stream_context_create(['ssl' => [
+			'verify_peer' => $validateCert,
+			'verify_peer_name' => $validateCert,
+			'peer_name' => $host,
+		]]);
 		$stream = @stream_socket_client( // @ is escalated to exception
 			($ssl ? 'ssl://' : 'tcp://') . $host . ':' . $port,
 			$errorCode,
 			$errorMessage,
 			$timeout,
+			STREAM_CLIENT_CONNECT,
+			$context,
 		);
 		if (!$stream) {
 			throw new Exception("Cannot connect to $host:$port: $errorMessage");

@@ -13,8 +13,9 @@ inspect headers, download and decode what matches, delete what was processed –
 
 - **Connection**: IMAP over implicit TLS (default port 993) or plain TCP (port 143). The mailbox
   is specified in the traditional c-client syntax, e.g. `{imap.gmail.com:993/imap/ssl}INBOX`,
-  so version 1.x configurations keep working. Unknown `/flags` are ignored, the folder defaults
-  to `INBOX`.
+  so version 1.x configurations keep working. The server's certificate (chain and host name) is
+  verified; `/novalidate-cert` turns that off as in 1.x, `/validate-cert` is accepted. Flags are
+  matched whole and case-insensitively, unknown ones are ignored, the folder defaults to `INBOX`.
 - **Authentication**: `LOGIN` with username and password (quoted with proper escaping). Gmail
   works with an app password.
 - **Listing**: `Mailbox::getMessages()` fetches UID, size and Subject/From/Date of all messages in one
