@@ -98,13 +98,24 @@ final class Message
 
 	/**
 	 * Returns all headers with lowercased names and decoded values. For a repeated header the first
-	 * occurrence wins; use getRaw() for headers like Received.
+	 * occurrence wins; use getRawHeaders() for headers like Received.
 	 * @return array<string, string>
 	 */
 	public function getHeaders(): array
 	{
 		$this->fetchHeaders();
 		return array_map(fn(string $value) => self::decodeHeader($value), $this->headers);
+	}
+
+
+	/**
+	 * Returns the header section exactly as received, including the blank line that ends it, without the body.
+	 * Unless the body is already downloaded, this costs one fetch of the header block, never the body.
+	 */
+	public function getRawHeaders(): string
+	{
+		$this->fetchHeaders();
+		return $this->headerBlock ?? '';
 	}
 
 

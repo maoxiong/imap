@@ -261,6 +261,42 @@ test('a header block fetched on its own does not count as the body', function ()
 });
 
 
+test('getRawHeaders() costs a single fetch of the header block, never the body', function () {
+	// the spare answer to T3 makes a second fetch fail the assertion instead of hanging the test
+	[$message, , $server] = scriptedMessage(
+		'MOVE UIDPLUS',
+		fetchResponse('T2', 'BODY[HEADER]', HeaderBlock) . fetchResponse('T3', 'BODY[HEADER]', HeaderBlock),
+	);
+	Assert::same(HeaderBlock, $message->getRawHeaders());
+	Assert::same(HeaderBlock, $message->getRawHeaders());
+
+	Assert::same(['T2 UID FETCH 42 (BODY.PEEK[HEADER])'], array_slice(sentCommands($server), 1));
+});
+
+
+test('once the body is in, getRawHeaders() costs nothing and getRaw() starts with it', function () {
+	$raw = HeaderBlock . "body\r\n";
+	[$message, , $server] = scriptedMessage('MOVE UIDPLUS', fetchResponse('T2', 'BODY[]', $raw));
+	Assert::same($raw, $message->getRaw());
+	Assert::same(HeaderBlock, $message->getRawHeaders());
+
+	Assert::same(['T2 UID FETCH 42 (BODY.PEEK[])'], array_slice(sentCommands($server), 1));
+});
+
+
+test('the header block is the same bytes whether it came with the headers or with the body', function () {
+	$raw = HeaderBlock . "body\r\n";
+	[$message] = scriptedMessage(
+		'MOVE UIDPLUS',
+		fetchResponse('T2', 'BODY[HEADER]', HeaderBlock) . fetchResponse('T3', 'BODY[]', $raw),
+	);
+	$before = $message->getRawHeaders();
+	Assert::same($raw, $message->getRaw());
+	Assert::same($before, $message->getRawHeaders());
+	Assert::true(str_starts_with($message->getRaw(), $before));
+});
+
+
 test('a message from a mailbox knows its UID', function () {
 	[$message] = scriptedMessage('MOVE UIDPLUS', '');
 	Assert::same(42, $message->getUid());
@@ -273,10 +309,11 @@ test('headers fetched before a move stay readable, those never fetched are gone'
 	$message->moveTo('Jinam');
 	Assert::same('<abc@example.com>', $message->getHeader('Message-ID'));
 	Assert::same(['subject' => 'Test', 'message-id' => '<abc@example.com>'], $message->getHeaders());
+	Assert::same(HeaderBlock, $message->getRawHeaders());
 
 	[$message] = scriptedMessage('MOVE UIDPLUS', "T2 OK MOVE\r\n");
 	$message->moveTo('Jinam');
-	foreach ([fn() => $message->getHeader('Message-ID'), fn() => $message->getRaw()] as $operation) {
+	foreach ([fn() => $message->getHeader('Message-ID'), fn() => $message->getRawHeaders(), fn() => $message->getRaw()] as $operation) {
 		Assert::exception($operation, LogicException::class, 'Message is no longer in the mailbox');
 	}
 });
