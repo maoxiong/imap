@@ -36,6 +36,42 @@ test('parses mailbox specification', function () {
 });
 
 
+test('the certificate is verified unless /novalidate-cert says otherwise', function () {
+	Assert::with(new Mailbox('{example.com/ssl}', 'user', 'password'), function () {
+		Assert::true($this->validateCert);
+	});
+	Assert::with(new Mailbox('{example.com/ssl/novalidate-cert}', 'user', 'password'), function () {
+		Assert::false($this->validateCert);
+	});
+	Assert::with(new Mailbox('{example.com/ssl/validate-cert}', 'user', 'password'), function () {
+		Assert::true($this->validateCert); // the c-client default, accepted
+	});
+	Assert::exception(
+		fn() => new Mailbox('{example.com/ssl/validate-cert/novalidate-cert}', 'user', 'password'),
+		DG\Imap\Exception::class,
+		'Flags /validate-cert and /novalidate-cert contradict each other',
+	);
+});
+
+
+test('flags are matched whole and case-insensitively', function () {
+	Assert::with(new Mailbox('{example.com/sslx}', 'user', 'password'), function () {
+		Assert::false($this->ssl); // not /ssl
+		Assert::same(143, $this->port);
+	});
+	Assert::with(new Mailbox('{example.com/imap/SSL/NoValidate-Cert}', 'user', 'password'), function () {
+		Assert::true($this->ssl);
+		Assert::same(993, $this->port);
+		Assert::false($this->validateCert);
+	});
+	Assert::exception(
+		fn() => new Mailbox('{example.com/tls-sslv23}', 'user', 'password'),
+		DG\Imap\Exception::class,
+		'STARTTLS is not supported, use implicit TLS via /ssl',
+	);
+});
+
+
 test('rejects invalid mailbox specification', function () {
 	Assert::exception(
 		fn() => new Mailbox('imap.gmail.com', 'user', 'password'),
