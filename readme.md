@@ -72,6 +72,14 @@ Host, port and the `/ssl` flag are all optional: the port defaults to 993 with T
 
 Gmail wants an [app password](https://support.google.com/accounts/answer/185833) rather than your account password.
 
+A server that does not answer is given 30 seconds. Pass a different timeout in seconds as the fourth argument:
+
+```php
+$mailbox = new Mailbox('{imap.gmail.com:993/ssl}', 'robot@example.com', $password, timeout: 10);
+```
+
+It applies to connecting, the TLS handshake and each read. Each read, not the whole transfer: a large message that keeps arriving, however slowly, is not cut off.
+
  <!---->
 
 Reading messages

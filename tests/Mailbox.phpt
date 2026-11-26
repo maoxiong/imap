@@ -109,3 +109,43 @@ test('rejects STARTTLS instead of silently connecting in plaintext', function ()
 		'STARTTLS is not supported, use implicit TLS via /ssl',
 	);
 });
+
+
+test('the timeout defaults to 30 seconds and can be given', function () {
+	Assert::with(new Mailbox('{example.com}', 'user', 'password'), function () {
+		Assert::same(30.0, $this->timeout);
+	});
+	Assert::with(new Mailbox('{example.com}', 'user', 'password', timeout: 5), function () {
+		Assert::same(5.0, $this->timeout);
+	});
+});
+
+
+test('a timeout that is not a positive number of seconds is refused', function () {
+	foreach ([0, -1, INF] as $timeout) {
+		Assert::exception(
+			fn() => new Mailbox('{example.com}', 'user', 'password', timeout: $timeout),
+			ValueError::class,
+			'Timeout must be a positive number of seconds',
+		);
+	}
+});
+
+
+test('the timeout reaches each read and the TLS handshake', function () {
+	// the kernel completes the TCP connect, but this server never accepts, greets or answers a handshake
+	$server = stream_socket_server('tcp://127.0.0.1:0');
+	$port = substr((string) strrchr((string) stream_socket_get_name($server, false), ':'), 1);
+
+	$cases = [
+		"{127.0.0.1:$port}" => 'Cannot read from server%a%', // waiting for the greeting
+		"{127.0.0.1:$port/ssl}" => "Cannot connect to 127.0.0.1:$port%a?%", // waiting for the handshake
+	];
+	foreach ($cases as $spec => $error) {
+		$mailbox = new Mailbox($spec, 'user', 'password', timeout: 0.3);
+		$start = microtime(true);
+		Assert::exception(fn() => $mailbox->connect(), DG\Imap\Exception::class, $error);
+		$elapsed = microtime(true) - $start;
+		Assert::true($elapsed > 0.25 && $elapsed < 0.9, "took $elapsed s"); // not 30, and not rounded up to a whole second
+	}
+});

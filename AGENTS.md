@@ -34,7 +34,7 @@ Two layers. The public chain `Mailbox` → `Message` → `MessagePart` is what c
 
 Public classes:
 
-- **`Mailbox`** — parses the c-client spec in the constructor (so a bad spec fails immediately, before any I/O), then connects lazily: `getMessages()` calls `connect()` itself if needed. One `UID FETCH 1:*` retrieves the UID and Subject/From/Date of every message; there is no paging or search. It also owns everything folder-shaped: `getFolders()`, `getSpecialFolder()`, and the `@internal` `deleteMessage()`/`moveMessage()` that `Message` delegates to — a message knows its UID, the mailbox knows the server.
+- **`Mailbox`** — parses the c-client spec in the constructor (so a bad spec fails immediately, before any I/O), then connects lazily: `getMessages()` calls `connect()` itself if needed. The optional fourth constructor argument is a timeout in seconds (default 30), validated there and passed to `Connection::connect()`. One `UID FETCH 1:*` retrieves the UID and Subject/From/Date of every message; there is no paging or search. It also owns everything folder-shaped: `getFolders()`, `getSpecialFolder()`, and the `@internal` `deleteMessage()`/`moveMessage()` that `Message` delegates to — a message knows its UID, the mailbox knows the server.
 - **`Message`** — holds a UID and the overview headers. Bodies are fetched **lazily**: the first `countParts()`, `getPart()`, `getParts()` or `getContents()` issues `UID FETCH <uid> (BODY.PEEK[])` and caches the result. Messages whose headers do not match the caller's criteria are therefore never downloaded — worth preserving, since attachments run to megabytes.
 - **`MessagePart`** — a raw part; it parses its own headers on construction and decodes content on read (quoted-printable / base64 per `Content-Transfer-Encoding`; a `text/*` part is then converted from its `CHARSET` parameter to UTF-8, and falls back to the undecoded bytes when the charset is unknown — a charset wrongly declared on a binary attachment is ignored).
 
@@ -47,6 +47,8 @@ Public classes:
 The one genuinely tricky part is **literals**. A server may end a line with `{n}\r\n`, meaning "the next n bytes are data, then the line continues". `readResponse()` therefore loops: read line, and while it ends in a literal marker, append exactly n bytes plus the rest of the line. One logical line can contain several literals. `Connection::parseLiteral()` then extracts the first literal from such a line and returns it alongside the line with the literal cut out — that pair is how `Mailbox` and `Message` split "the message data" from "the FETCH envelope holding the UID".
 
 Do not "simplify" this with `stream_get_contents()` or a line-based read: literal payloads contain CRLFs and can hold the whole message body.
+
+The timeout reaches three places: `stream_socket_client()` takes it for the connect and, with `ssl://`, the TLS handshake; `stream_set_timeout()` takes it for reads, split into seconds and microseconds — never `ceil()` it to whole seconds, which turned 0.3 into 1. It limits each read, not a whole command, so a slow but steady transfer is not cut off.
 
 ### Part numbering and nesting
 
@@ -104,7 +106,7 @@ Coverage is real and offline — a live mailbox is needed for almost nothing:
 
 - **`Connection.phpt`** — the protocol against a scripted dialogue: literals (single and several per response), `NO`/`BAD`, tag sequencing, a truncated stream, a partial line, use after disconnect.
 - **`MimeParser.phpt`**, **`Message.phpt`** — parsing and decoding through `Message::fromString()`, including every quirk listed above.
-- **`Mailbox.phpt`** — mailbox specification parsing, `getFolders()` (UTF-7 names, a name sent as a literal) and a failed `connect()`, all against a scripted connection put in place with `Assert::with()`. The failed connect aims at port 0, which no platform will dial, so it costs nothing; a closed port like `127.0.0.1:1` looks equivalent but takes two seconds on Windows.
+- **`Mailbox.phpt`** — mailbox specification parsing, `getFolders()` (UTF-7 names, a name sent as a literal) and a failed `connect()`, all against a scripted connection put in place with `Assert::with()`. The failed connect aims at port 0, which no platform will dial, so it costs nothing; a closed port like `127.0.0.1:1` looks equivalent but takes two seconds on Windows. The timeout tests use an in-process `stream_socket_server()` that never accepts: the kernel completes the TCP connect, then the greeting (or the TLS handshake) never comes, and the 0.3 s timeout must end it in under 0.9 s.
 - **`connect.phpt`** — the only test that touches the internet: bogus credentials against Gmail must throw.
 
 What the offline tests cannot reach: `connect()` closing the previous session on **success** needs a server to connect to, so only the failure path is pinned by a test.

@@ -14,7 +14,9 @@ inspect headers, download and decode what matches, delete what was processed –
 - **Connection**: IMAP over implicit TLS (default port 993) or plain TCP (port 143). The mailbox
   is specified in the traditional c-client syntax, e.g. `{imap.gmail.com:993/imap/ssl}INBOX`,
   so version 1.x configurations keep working. Unknown `/flags` are ignored, the folder defaults
-  to `INBOX`.
+  to `INBOX`. An optional timeout in seconds (default 30) applies to connecting, the TLS
+  handshake and each read – each read, not the whole transfer, so data that keeps arriving
+  slowly is never cut off and there is no limit on the total time.
 - **Authentication**: `LOGIN` with username and password (quoted with proper escaping). Gmail
   works with an app password.
 - **Listing**: `Mailbox::getMessages()` fetches UID + Subject/From/Date of all messages in one
