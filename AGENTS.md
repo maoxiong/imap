@@ -29,12 +29,12 @@ Coding standards (Nette Code Checker + Nette Coding Standard) run only in CI, no
 
 Two layers. The public chain `Mailbox` → `Message` → `MessagePart` is what callers see; underneath sit two `@internal` helpers that replace what ext-imap used to do:
 
-- **`Connection`** — the IMAP protocol over a TCP/TLS socket. Owns tagging, reading responses and error detection. Created through `Connection::connect()`; the constructor is private.
+- **`Connection`** — the IMAP protocol over a TCP/TLS socket. Owns tagging, reading responses and error detection. Created through `Connection::connect()`; the constructor is private. A `[CAPABILITY …]` code in the greeting fills the capability cache, sparing `hasCapability()` its `CAPABILITY` round trip.
 - **`MimeParser`** — static functions splitting a raw message into headers/body, parsing structured header values, and cutting a multipart body on its boundary.
 
 Public classes:
 
-- **`Mailbox`** — parses the c-client spec in the constructor (so a bad spec fails immediately, before any I/O), then connects lazily: `getMessages()` calls `connect()` itself if needed. One `UID FETCH 1:*` retrieves the UID and Subject/From/Date of every message; there is no paging or search. It also owns everything folder-shaped: `getFolders()`, `getSpecialFolder()`, and the `@internal` `deleteMessage()`/`moveMessage()` that `Message` delegates to — a message knows its UID, the mailbox knows the server.
+- **`Mailbox`** — parses the c-client spec in the constructor (so a bad spec fails immediately, before any I/O), then connects lazily: `getMessages()` calls `connect()` itself if needed. Before `LOGIN` it checks `LOGINDISABLED` and throws rather than send the password over a connection the server itself calls unprotected; after `LOGIN` it drops the capability cache (`forgetCapabilities()`), because a logged-in server may announce more — keeping the pre-login list would hide `MOVE` and `UIDPLUS`, and `delete()` would fall back to an `EXPUNGE` of the whole folder. One `UID FETCH 1:*` retrieves the UID and Subject/From/Date of every message; there is no paging or search. It also owns everything folder-shaped: `getFolders()`, `getSpecialFolder()`, and the `@internal` `deleteMessage()`/`moveMessage()` that `Message` delegates to — a message knows its UID, the mailbox knows the server.
 - **`Message`** — holds a UID and the overview headers. Bodies are fetched **lazily**: the first `countParts()`, `getPart()`, `getParts()` or `getContents()` issues `UID FETCH <uid> (BODY.PEEK[])` and caches the result. Messages whose headers do not match the caller's criteria are therefore never downloaded — worth preserving, since attachments run to megabytes.
 - **`MessagePart`** — a raw part; it parses its own headers on construction and decodes content on read (quoted-printable / base64 per `Content-Transfer-Encoding`; a `text/*` part is then converted from its `CHARSET` parameter to UTF-8, and falls back to the undecoded bytes when the charset is unknown — a charset wrongly declared on a binary attachment is ignored).
 
@@ -104,7 +104,7 @@ Coverage is real and offline — a live mailbox is needed for almost nothing:
 
 - **`Connection.phpt`** — the protocol against a scripted dialogue: literals (single and several per response), `NO`/`BAD`, tag sequencing, a truncated stream, a partial line, use after disconnect.
 - **`MimeParser.phpt`**, **`Message.phpt`** — parsing and decoding through `Message::fromString()`, including every quirk listed above.
-- **`Mailbox.phpt`** — mailbox specification parsing, `getFolders()` (UTF-7 names, a name sent as a literal) and a failed `connect()`, all against a scripted connection put in place with `Assert::with()`. The failed connect aims at port 0, which no platform will dial, so it costs nothing; a closed port like `127.0.0.1:1` looks equivalent but takes two seconds on Windows.
+- **`Mailbox.phpt`** — mailbox specification parsing, `getFolders()` (UTF-7 names, a name sent as a literal), the login in the private `open()` that `connect()` hands its fresh connection to (`LOGINDISABLED` refused with nothing sent, capabilities read again after `LOGIN`) and a failed `connect()`, all against a scripted connection put in place with `Assert::with()`. The failed connect aims at port 0, which no platform will dial, so it costs nothing; a closed port like `127.0.0.1:1` looks equivalent but takes two seconds on Windows.
 - **`connect.phpt`** — the only test that touches the internet: bogus credentials against Gmail must throw.
 
 What the offline tests cannot reach: `connect()` closing the previous session on **success** needs a server to connect to, so only the failure path is pinned by a test.

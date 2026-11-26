@@ -16,7 +16,11 @@ inspect headers, download and decode what matches, delete what was processed –
   so version 1.x configurations keep working. Unknown `/flags` are ignored, the folder defaults
   to `INBOX`.
 - **Authentication**: `LOGIN` with username and password (quoted with proper escaping). Gmail
-  works with an app password.
+  works with an app password. A server that advertises `LOGINDISABLED` says the connection is
+  not protected enough for a password, so `connect()` throws instead of sending `LOGIN` and
+  points to `/ssl`. The check reads the capabilities from the greeting when the server puts them
+  there, otherwise it costs one `CAPABILITY` round trip; after login they are read again, because
+  a logged-in server may announce more, such as `MOVE` and `UIDPLUS`.
 - **Listing**: `Mailbox::getMessages()` fetches UID + Subject/From/Date of all messages in one
   round trip. Message bodies are downloaded lazily, on the first call of `countParts()`,
   `getPart()`, `getParts()` or `getContents()` – messages whose headers do not match are never
