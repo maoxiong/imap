@@ -92,9 +92,10 @@ Any other header costs one small fetch of that message's header block, still wit
 ```php
 $message->getHeader('Message-ID');   // case-insensitive, decoded; null when missing
 $message->getHeaders();              // all of them, names lowercased
+$message->getRawHeaders();           // the header block byte for byte, still no body
 ```
 
-A header that appears several times, like `Received`, gives its first occurrence; `getRaw()` returns the whole source byte for byte, every line of it. `getUid()` returns the server's identifier, but it means something only within the current session; to recognize a message later, keep its `Message-ID` instead.
+A header that appears several times, like `Received`, gives its first occurrence; `getRawHeaders()` has the header block with every line exactly as sent, and `getRaw()` the whole source, which it always starts with. `getUid()` returns the server's identifier, but it means something only within the current session; to recognize a message later, keep its `Message-ID` instead.
 
 Everything below reaches for the body, which is downloaded once and cached:
 

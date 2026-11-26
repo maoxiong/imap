@@ -289,9 +289,23 @@ test('a message of headers only round-trips and has an empty body', function () 
 	foreach (['Subject: X', "Subject: X\r\n"] as $raw) {
 		$message = Message::fromString($raw);
 		Assert::same($raw, $message->getRaw());
+		Assert::same($raw, $message->getRawHeaders());
 		Assert::same('', $message->getContents());
 		Assert::same('X', $message->getHeader('Subject'));
 	}
+});
+
+
+test('getRawHeaders() is the header block up to and including the blank line, whatever the line endings', function () {
+	$message = Message::fromString(buildHeaderMessage());
+	$headers = $message->getRawHeaders();
+	Assert::true(str_starts_with($headers, "Received: from second.example.com\r\n"));
+	Assert::true(str_ends_with($headers, "Subject: Hello\r\n\r\n"));
+	Assert::same($headers . 'body', $message->getRaw());
+
+	$message = Message::fromString("Subject: X\n\nline one\n");
+	Assert::same("Subject: X\n\n", $message->getRawHeaders());
+	Assert::same("Subject: X\n\nline one\n", $message->getRaw());
 });
 
 
