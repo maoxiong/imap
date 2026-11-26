@@ -18,12 +18,15 @@ inspect headers, download and decode what matches, delete what was processed –
 - **Authentication**: `LOGIN` with username and password (quoted with proper escaping). Gmail
   works with an app password.
 - **Listing**: `Mailbox::getMessages()` fetches UID + Subject/From/Date of all messages in one
-  round trip. Message bodies are downloaded lazily, on the first call of `countParts()`,
-  `getPart()`, `getParts()` or `getContents()` – messages whose headers do not match are never
-  downloaded.
+  round trip. Any other header is fetched on demand by `getHeader()`/`getHeaders()` through
+  `BODY.PEEK[HEADER]`, still without the body. Message bodies are downloaded lazily, on the
+  first call of `countParts()`, `getPart()`, `getParts()`, `getContents()` or `getRaw()` –
+  messages whose headers do not match are never downloaded.
 - **MIME**: the body is split into top-level parts; each part decodes its transfer encoding
-  (quoted-printable, base64) and text parts convert their declared charset to UTF-8. Subject
-  and From decode encoded-words (`=?utf-8?B?...?=`), including multi-chunk ones.
+  (quoted-printable, base64) and text parts convert their declared charset to UTF-8. Subject,
+  From and any header read through `getHeader()` decode encoded-words (`=?utf-8?B?...?=`),
+  including multi-chunk ones. For a repeated header the first occurrence wins; `getRaw()`
+  returns the whole source with all of them.
 - **Real-world tolerance**, verified against messages from actual supplier systems:
   - `Content-Type: base64` (a transfer encoding sent as the content type) – decoding follows
     the `Content-Transfer-Encoding` header, not the content type,
@@ -48,7 +51,8 @@ inspect headers, download and decode what matches, delete what was processed –
   both directions; the modified UTF-7 of the wire is converted at the edge.
 - **Offline processing**: `Message::fromString()` creates a detached message from a raw
   RFC 5322 string (an `.eml` file). Everything except the removal operations works on it,
-  which makes code that processes messages testable without a server.
+  which makes code that processes messages testable without a server; `getRaw()` returns the
+  string as given.
 
 
 ## What it does not do
@@ -80,6 +84,9 @@ Known assumptions, fine on Gmail and mainstream servers:
   or reconnected, acting on one throws `DG\Imap\Exception` rather than silently opening a new
   session, because a UID means nothing outside the session it came from. A message that was
   already deleted or moved throws `LogicException`. Data downloaded before that stays readable.
+  For the same reason the UID that `getUid()` returns is no key to store: without the folder's
+  `UIDVALIDITY`, which is not exposed, it may name a different message next time. `Message-ID`
+  is the one to keep.
 - Calling `connect()` again replaces the session, but only once the new one is logged in and
   the folder selected. A connection or authentication failure therefore leaves the session you
   had untouched, instead of taking it down on the way to a server that turned out unreachable.
