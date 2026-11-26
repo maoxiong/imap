@@ -82,10 +82,19 @@ foreach ($mailbox->getMessages() as $message) {
 	echo $message->getSubject(), "\n";   // decoded, even from =?utf-8?B?...?=
 	echo $message->getFrom(), "\n";
 	echo $message->getDate()?->format('Y-m-d'), "\n";
+	echo $message->getSize(), "\n";      // bytes, nothing downloaded
 }
 ```
 
-Those three come from a single fetch across the whole mailbox. Subject and sender are decoded; `getDate()` returns `null` when the message carries no parseable `Date` header. Everything below reaches for the body, which is downloaded once and cached:
+Those four come from a single fetch across the whole mailbox. Subject and sender are decoded; `getDate()` returns `null` when the message carries no parseable `Date` header, and `getSize()` when the server does not report one. The size lets you pass over a message before its body is fetched:
+
+```php
+if ($message->getSize() > 10_000_000) {
+	continue; // never downloaded
+}
+```
+
+Everything below reaches for the body, which is downloaded once and cached:
 
 ```php
 $message->countParts();          // 0 for a single-part message

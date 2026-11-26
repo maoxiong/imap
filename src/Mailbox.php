@@ -68,10 +68,11 @@ final class Mailbox
 	{
 		$connection = $this->connectIfNeeded();
 		$res = [];
-		foreach ($connection->command('UID FETCH 1:* (UID BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])') as $line) {
+		foreach ($connection->command('UID FETCH 1:* (UID RFC822.SIZE BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])') as $line) {
 			$parsed = str_starts_with($line, '* ') ? Connection::parseLiteral($line) : null;
 			if ($parsed && preg_match('~\bUID (\d+)~', $parsed[1], $m)) {
-				$res[] = new Message($this, $this->generation, (int) $m[1], MimeParser::parse($parsed[0])[0]);
+				$size = preg_match('~\bRFC822\.SIZE (\d+)~', $parsed[1], $s) ? (int) $s[1] : null;
+				$res[] = new Message($this, $this->generation, (int) $m[1], MimeParser::parse($parsed[0])[0], $size);
 			}
 		}
 

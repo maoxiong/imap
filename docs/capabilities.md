@@ -17,8 +17,8 @@ inspect headers, download and decode what matches, delete what was processed –
   to `INBOX`.
 - **Authentication**: `LOGIN` with username and password (quoted with proper escaping). Gmail
   works with an app password.
-- **Listing**: `Mailbox::getMessages()` fetches UID + Subject/From/Date of all messages in one
-  round trip. Message bodies are downloaded lazily, on the first call of `countParts()`,
+- **Listing**: `Mailbox::getMessages()` fetches UID, size and Subject/From/Date of all messages
+  in one round trip. Message bodies are downloaded lazily, on the first call of `countParts()`,
   `getPart()`, `getParts()` or `getContents()` – messages whose headers do not match are never
   downloaded.
 - **MIME**: the body is split into top-level parts; each part decodes its transfer encoding
